@@ -23,3 +23,21 @@ go.work.sum
 
 # env file
 .env
+
+# Database files
+*.db
+
+# Swagger documentation
+docs/
+
+# Logs
+*.log
+
+# IDE/editor specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+*.tmp
+.DS_Store

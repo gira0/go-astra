@@ -9,11 +9,11 @@ all: clean swag build run
 
 build:
 	@echo "Building the project..."
-	go build -o $(BINARY_NAME) ./control_node.go
+	go build -o $(BINARY_NAME)
 
 swag:
 	@echo "Generating Swagger documentation..."
-	swag init -g ./control_node.go
+	swag init -g ./*.go
 
 clean:
 	@echo "Cleaning up..."
@@ -23,6 +23,7 @@ clean:
 
 run: build swag
 	@echo "Running the project..."
+	chmod +x $(BINARY_NAME)
 	./$(BINARY_NAME)
 
 # Default target

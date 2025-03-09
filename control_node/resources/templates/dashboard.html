@@ -1,0 +1,38 @@
+<!-- resources/templates/dashboard.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control Node Dashboard</title>
+    <link rel="stylesheet" type="text/css" href="/static/resources/css/dashboard.css">
+</head>
+<body>
+    <h1>Welcome to the Control Node Dashboard!</h1>
+    <div class="tab">
+        <button class="tablinks" onclick="openTab(event, 'Nodes')">Nodes</button>
+        <button class="tablinks" onclick="openTab(event, 'Settings')">Settings</button>
+        <button class="tablinks" onclick="openTab(event, 'Transfers')">Transfers</button>
+    </div>
+
+    <div id="Nodes" class="tabcontent">
+        <h3>Nodes</h3>
+        <button class="add-node-button" onclick="addNode()">Add Node</button>
+        <ul id="nodeList">
+            <!-- Node items will be populated here -->
+        </ul>
+    </div>
+
+    <div id="Settings" class="tabcontent">
+        <h3>Settings</h3>
+        <p>Manage your settings here.</p>
+    </div>
+
+    <div id="Transfers" class="tabcontent">
+        <h3>Transfers</h3>
+        <p>Manage your transfers here.</p>
+    </div>
+
+    <script src="/static/resources/js/dashboard.js"></script>
+</body>
+</html>

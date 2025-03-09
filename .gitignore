@@ -41,3 +41,6 @@ docs/
 *.bak
 *.tmp
 .DS_Store
+
+# makefile output
+control_node/control_node

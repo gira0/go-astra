@@ -66,6 +66,10 @@ func startControlNode() {
 
 		// Swagger UI
 		http.HandleFunc("/swagger/", httpSwagger.WrapHandler)
+		// NEW: register generate auth key endpoint
+		http.HandleFunc("/generate_auth_key", authMiddleware(generateAuthKeyHandler))
+		// NEW: register node join endpoint (no auth middleware as the node doesn't yet have a session)
+		http.HandleFunc("/node_join", nodeJoinHandler)
 
 		log.Info().Msg("Control node API is listening on localhost:8081")
 		log.Fatal().Err(http.ListenAndServe(":8081", nil)).Msg("Failed to start HTTP server")

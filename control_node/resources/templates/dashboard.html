@@ -23,6 +23,19 @@
         </ul>
     </div>
 
+    <!-- Begin Modal Dialog for Adding Node -->
+    <div id="addNodeModal" style="display:none; position:fixed; top:20%; left:30%; width:40%; padding:20px; background:#fff; border:1px solid #ccc; box-shadow:0 0 10px rgba(0,0,0,0.5);">
+        <h2>Add Node</h2>
+        <label for="authDuration">Valid period (hours, max 24):</label>
+        <input type="number" id="authDuration" name="authDuration" min="1" max="24" value="1">
+        <br><br>
+        <button id="generateAuthKeyBtn">Generate Auth Key</button>
+        <button onclick="closeAddNodeModal()">Cancel</button>
+        <br><br>
+        <div id="authKeyResult"></div>
+    </div>
+    <!-- End Modal Dialog -->
+
     <div id="Settings" class="tabcontent">
         <h3>Settings</h3>
         <p>Manage your settings here.</p>

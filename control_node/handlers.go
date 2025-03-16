@@ -1,10 +1,18 @@
 package main
 
 import (
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"embed"
+	"encoding/json"
 	"encoding/pem"
+	"fmt"
+	"math/big"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/bcrypt"
@@ -23,7 +31,8 @@ var dashboardHTML embed.FS
 //	@Router			/status [get]
 func statusHandler(w http.ResponseWriter, r *http.Request) {
 	log.Info().Msg("Received request for /status")
-	w.Write([]byte("Control node is running"))
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"message": "Control node is running"}`))
 }
 
 // loginHandler godoc
@@ -190,6 +199,47 @@ func joinHandler(w http.ResponseWriter, r *http.Request) {
     `))
 }
 
+// @Summary Generate Auth Key
+// @Description Generates a join key valid for a specified duration (in hours between 1 and 24). Requires an authenticated session.
+// @Tags auth
+// @Accept x-www-form-urlencoded
+// @Produce json
+// @Param duration formData int true "Duration in hours (1-24)"
+// @Success 200 {object} map[string]interface{} "Auth key generated successfully"
+// @Failure 400 {string} string "Invalid duration"
+// @Failure 500 {string} string "Failed to generate or insert key"
+// @Router /generate_auth_key [post]
+func generateAuthKeyHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	durationStr := r.FormValue("duration")
+	durationHours, err := strconv.Atoi(durationStr)
+	if err != nil || durationHours < 1 || durationHours > 24 {
+		http.Error(w, "Invalid duration. Must be between 1 and 24 hours.", http.StatusBadRequest)
+		return
+	}
+	// Generate a random 16-byte auth key
+	keyBytes := make([]byte, 16)
+	if _, err := rand.Read(keyBytes); err != nil {
+		http.Error(w, "Failed to generate key", http.StatusInternalServerError)
+		return
+	}
+	authKey := fmt.Sprintf("%x", keyBytes)
+	// Compute expiration time as current Unix time + duration in seconds
+	expiration := time.Now().Unix() + int64(durationHours*3600)
+	// Insert the join key with the timeout value
+	_, err = db.Exec("INSERT INTO join_keys (key, timeout) VALUES ($1, $2)", authKey, expiration)
+	if err != nil {
+		http.Error(w, "Failed to insert key into database", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(fmt.Sprintf(`{"authKey": "%s", "validHours": %d}`, authKey, durationHours)))
+}
+
+// generateCertificate generates a self-signed certificate for the server
 func generateCertificate(serverName string) (string, error) {
 	log.Info().Str("serverName", serverName).Msg("Generating certificate")
 	// Generate a self-signed certificate for the server
@@ -206,4 +256,118 @@ func generateCertificate(serverName string) (string, error) {
 
 	log.Info().Str("serverName", serverName).Msg("Certificate generated successfully")
 	return string(certPEM), nil
+}
+
+// NEW: Define NodeJoinRequest model
+type NodeJoinRequest struct {
+	JoinKey  string `json:"join_key"`
+	Hostname string `json:"hostname"`
+	CSR      string `json:"csr"`
+}
+
+// NEW: Define NodeJoinResponse model
+type NodeJoinResponse struct {
+	Certificate string `json:"certificate"`
+}
+
+// @Summary Node Join
+// @Description Accepts a join key, hostname, and a certificate signing request (CSR) in JSON, and returns a signed certificate as JSON. No prior authentication is required.
+// @Tags node
+// @Accept json
+// @Produce json
+// @Param body body NodeJoinRequest true "Join request"
+// @Success 200 {object} NodeJoinResponse "Signed certificate returned successfully"
+// @Failure 400 {string} string "Invalid JSON payload or CSR"
+// @Failure 401 {string} string "Invalid or expired join key"
+// @Router /node_join [post]
+func nodeJoinHandler(w http.ResponseWriter, r *http.Request) {
+	// NEW: Clean up expired join keys on each join request
+	_, err := db.Exec("DELETE FROM join_keys WHERE timeout < strftime('%s','now')")
+	if err != nil {
+		log.Error().Err(err).Msg("Join key cleanup failed")
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Only POST allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req NodeJoinRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Verify join key not expired or used
+	var keyID int
+	err = db.QueryRow(
+		"SELECT id FROM join_keys WHERE key = $1 AND server_id IS NULL AND timeout > strftime('%s','now')",
+		req.JoinKey).Scan(&keyID)
+	if err != nil {
+		http.Error(w, "Invalid or expired join key", http.StatusUnauthorized)
+		return
+	}
+
+	// Decode the CSR
+	csrBlock, _ := pem.Decode([]byte(req.CSR))
+	if csrBlock == nil {
+		http.Error(w, "Invalid CSR PEM", http.StatusBadRequest)
+		return
+	}
+	csr, err := x509.ParseCertificateRequest(csrBlock.Bytes)
+	if err != nil {
+		http.Error(w, "Failed to parse CSR", http.StatusBadRequest)
+		return
+	}
+
+	// Generate a random serial number
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		http.Error(w, "Failed to generate serial number", http.StatusInternalServerError)
+		return
+	}
+
+	// Create a certificate template
+	certTemplate := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			CommonName:   req.Hostname,
+			Organization: []string{"Astra"},
+		},
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().Add(24 * time.Hour), // 1 day validity
+		KeyUsage:  x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+	}
+
+	caCert, err := tls.X509KeyPair([]byte(serverCert), []byte(serverKey))
+	if err != nil {
+		http.Error(w, "Failed to load CA certificate", http.StatusInternalServerError)
+		return
+	}
+	caParsed, err := x509.ParseCertificate(caCert.Certificate[0])
+	if err != nil {
+		http.Error(w, "Failed to parse CA certificate", http.StatusInternalServerError)
+		return
+	}
+
+	// Sign the CSR with our CA
+	signedCertBytes, err := x509.CreateCertificate(
+		rand.Reader,
+		&certTemplate,
+		caParsed,
+		csr.PublicKey,
+		caCert.PrivateKey)
+	if err != nil {
+		http.Error(w, "Certificate signing error", http.StatusInternalServerError)
+		return
+	}
+
+	// Encode signed cert as PEM
+	signedCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: signedCertBytes})
+
+	// Optional: update join_keys or record server info in DB
+	resp := NodeJoinResponse{Certificate: string(signedCertPEM)}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }

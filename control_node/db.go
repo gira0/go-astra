@@ -78,6 +78,7 @@ func initSchema() error {
 	CREATE TABLE IF NOT EXISTS join_keys (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		key TEXT NOT NULL,
+		timeout INTEGER,
 		server_id INTEGER,
 		FOREIGN KEY (server_id) REFERENCES servers(id)
 	);
